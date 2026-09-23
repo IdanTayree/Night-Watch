@@ -51,3 +51,6 @@ exit 0
 $ git diff --check
 exit 0
 ```
+
+Implementation commit: `bd6e184`. Recorded in this separate follow-up commit.
+`git merge-base --is-ancestor bd6e184 HEAD`: exit 0.
