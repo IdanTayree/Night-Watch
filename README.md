@@ -225,6 +225,17 @@ night-watch/
     └── verify_shift.py       ancestry, not existence
 ```
 
+## The mark
+
+A tribute, and the right one: the oath on the poster belongs to the Night's Watch, who keep a watch
+while everyone else sleeps — and the raven is Westeros's messenger, which is the other half of what
+this skill does. It works overnight and it reports in the morning.
+
+`assets/` carries three cuts of it: the poster (`night-watch.webp`, the README hero), a square
+`avatar.png` with the caption cropped away for anywhere it renders small, and a 1280×640
+`social-preview.png` for GitHub's social preview setting — which is web-only, under
+*Settings → General → Social preview*.
+
 ## Licence
 
 MIT — see [LICENSE](LICENSE).
