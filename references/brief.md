@@ -12,9 +12,11 @@ shift is recalling rather than measuring.
 python3 scripts/verify_shift.py path/to/brief.md
 ```
 
-It parses every `### … · \`sha\`` heading in the Log, checks each sha with
-`git merge-base --is-ancestor`, counts what the shift claims against what git confirms, and prints
-`UNMEASURED:` for anything it could not establish.
+It validates the structured [contract](contracts.md): queue mapping, ancestry, task commit subjects,
+changed paths and recorded gate evidence. Exit 0 means complete evidence; exit 1 is invalid evidence;
+exit 2 is a properly recorded incomplete/blocked shift. JSON mode uses the same exit codes. Neither
+format establishes that the worker's recorded test output is genuine; independently review/rerun the
+appropriate gates. Use `--require-ref origin/main` only after fetching that ref when claiming delivery.
 
 **Two rules about its output, and they are the whole point of running it:**
 

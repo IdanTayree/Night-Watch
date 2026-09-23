@@ -1,0 +1,4 @@
+interface:
+  display_name: "Night Watch"
+  short_description: "Plan bounded shifts and verify execution evidence"
+  default_prompt: "Use $night-watch for this project, starting with the files and tools available."

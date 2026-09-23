@@ -1,9 +1,18 @@
 ---
 name: night-watch
-description: Run a project in two shifts — a day shift that spends your attention, and a night shift that does not need it. Use when someone wants work to continue while they sleep or step away ("work on this overnight", "queue up work for tonight", "run while I'm out", "night shift", "unattended run"), when they ask how to hand a queue to an agent that will have no supervision, or when a long unattended session needs planning, arming, running or reporting. Also use the morning after, when they ask what happened overnight, for "the brief", or what is waiting on them. Prefer this over simply starting the work: unattended output that nobody can falsify is worth less than no output at all, and this skill exists to make the difference checkable.
+description: "Plan, execute and report finite unattended project shifts with explicit task contracts and verifiable evidence. Use for overnight work, handing an approved queue to an agent, or reviewing what a shift delivered. Supports Claude, ChatGPT and Codex; without repository execution tools, provide planning or evidence review rather than claiming a shift ran."
 ---
 
 # night-watch
+
+## Host and capability check
+
+Works with Claude, ChatGPT and Codex. Read [references/platforms.md](references/platforms.md) when
+starting in a new host. Confirm available files, browsing, Python/Git and execution permissions before
+promising outputs. Use its planning-only or conversation fallback when tools are missing. Resolve
+bundled scripts relative to this SKILL.md, not the user's project. This check governs the file-saving
+and execution steps below; never invent successful runs or persistence.
+
 
 **Two shifts, split by who is needed — not by the clock.**
 
@@ -32,6 +41,13 @@ contradict it. That refusal is the most valuable output this skill has.
 
 ---
 
+## Checked brief format
+
+Use [references/contracts.md](references/contracts.md) for the required JSON policy, per-phase scope,
+receipts and exit codes. The Markdown explanation remains useful to people; the structured fields
+make task/path/evidence validation deterministic. Historical prose-only briefs require migration and
+are not silently accepted. These checks are not a sandbox and do not prove self-reported tests ran.
+
 ## Phase 1 — the day shift: build a queue that can run without you
 
 Read **`references/planning.md`** before starting this. The short version:
@@ -52,11 +68,12 @@ Read **`references/planning.md`** before starting this. The short version:
 5. **Write the never-decide list.** Categories the night must refuse rather than resolve. Defaults
    in `planning.md`; the project adds its own.
 6. **Run the precondition check.** `python3 scripts/precheck.py <brief>` and **read its output.**
-   It refuses a brief whose phases name work that does not exist, is already done, depends on an
-   unanswered question, or has no gate. **A failing check is not a formality to override** — it is
+   It refuses missing/closed tasks, incomplete structured contracts and protected-path overlaps.
+   Review the surrounding prose for unresolved decisions; a parser cannot establish semantic clarity. **A failing check is not a formality to override** — it is
    the difference between a useful night and a wasted one.
 
-**The day ends when the check passes.** Nothing is armed before that.
+**The day ends after the check passes, the gates run green and permissions are reviewed.** Nothing
+is armed before that; precheck alone is insufficient.
 
 ---
 
@@ -79,7 +96,7 @@ Read **`references/shift.md`** before the first command. The rules that matter m
   entry with a written reason, not a fourth attempt.
 - **A refusal is a completed phase.** Say refused, say what was measured, and say in one clause what
   would change the answer. A task that should not be done is finished when that is written down.
-- **Never decide what the list says not to decide.** Write the question and move to the next phase.
+- **Never decide what the list says not to decide.** Write the question and stop the sequential queue; do not run its dependents.
 - **Stop cleanly.** If the shift ends early, write `STOPPED AFTER PHASE N — <one line on why>` so the
   morning knows the difference between finished and interrupted.
 
@@ -88,8 +105,8 @@ Read **`references/shift.md`** before the first command. The rules that matter m
 ## Phase 3 — the morning: a brief that was measured
 
 Read **`references/brief.md`**. Run `python3 scripts/verify_shift.py <brief>` **first** — it checks
-every sha the log claims is actually an ancestor of HEAD, and prints `UNMEASURED:` for anything it
-could not establish.
+queue/receipt mapping, ancestry, changed paths and recorded gate evidence. Exit 0 means complete,
+1 means invalid evidence and 2 means explicitly incomplete; see the contract reference.
 
 **Report `UNMEASURED` as unmeasured.** Never substitute a remembered number for one a script refused
 to give: loading, not-running, empty and not-knowing are four different states, and a brief that

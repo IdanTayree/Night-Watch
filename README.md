@@ -2,7 +2,7 @@
 
 <img src="assets/night-watch.webp" width="300" alt="Night Watch — a bronze raven with spread wings over a sigil and blade. Night gathers, and now my watch begins.">
 
-**A Claude skill that runs a project in two shifts — one that needs you, and one that does not.**
+**A skill for Claude, ChatGPT and Codex that runs a project in two shifts — one that needs you, and one that does not.**
 
 Your attention is the scarce thing. Spend the day on the work only you can do, and hand the night a
 queue that can run without you — and come back to something you can check, rather than something you
@@ -86,22 +86,15 @@ services or another agent's lane **last, or not at all.**
 
 ### The check that refuses to arm
 
-```
-REFUSE  Phase 1 names T-999, which is not on the board at all. A shift that works an
-        invented task looks productive the whole time.
-REFUSE  Phase 2 has no gate. Name the exact command that proves it — a phase nothing can
-        contradict is a phase nobody can check in the morning.
-REFUSE  Phase 2 depends on something unanswered ('Decide later'). That is day work —
-        retire it while they are awake, or drop the phase.
-REFUSE  Phase 2 names T-637, which is already CLOSED. This is the failure this check
-        exists for.
+The current [contract](references/contracts.md) requires real open task IDs, a base commit,
+nonempty gate/done conditions and explicit write scopes. Missing boards and protected-path overlaps
+refuse arming. A valid declaration still needs a green gate and permissions review.
 
-4 reason(s) this brief cannot run unattended.
-A failing check is a finding, not a formality — fix the brief, do not override it.
-```
+Illustrative failure output:
 
-Every one of those is a real failure that has happened to a real project, in the dark, while
-reading as progress.
+```text
+REFUSE Phase 1: T-999 is missing or closed on the board
+```
 
 ## Falsify, don't just test
 
@@ -128,21 +121,10 @@ is *present* will happily match the comment explaining why it must not be.
 
 Run the verifier **before** writing a word of it:
 
-```
-claimed  2 · verified 1
-
-THIS GOES AT THE TOP OF THE BRIEF:
-  FAILED  deadbee  Phase 2 — claimed
-          the sha does not exist in this repo
-
-  ok      ec506e5c  Phase 1 — landed
-
-  no sha in these log headings — they claim a phase and prove nothing:
-          ### Phase 3 — no sha at all
-
-  UNMEASURED: 2 of 3 phases logged, and no STOPPED marker.
-  Cannot tell finished from interrupted — do not guess which.
-```
+The exit code distinguishes complete evidence (0), invalid evidence (1) and an explicitly
+interrupted shift (2). Empty or malformed logs cannot pass. The verifier checks task mapping,
+ancestry, actual changed paths and recorded gate results. Independent review still establishes that
+the gate was meaningful and its output genuine. See [the contract](references/contracts.md).
 
 **The sha goes in the log heading, never in prose**, and it is checked with
 `git merge-base --is-ancestor` rather than `git cat-file`. A commit can exist and still not be in
@@ -187,13 +169,38 @@ Use Blindspot while the shape of the thing is still in question. Use Night Watch
 
 ## Install
 
+### Claude Code
+
 ```bash
-git clone https://github.com/IdanTayree/night-watch.git ~/.claude/skills/night-watch
+git clone https://github.com/IdanTayree/Night-Watch.git ~/.claude/skills/night-watch
 ```
 
-Then say what you want done overnight. It triggers on things like *"work on this overnight"*,
-*"queue up work for tonight"*, *"run while I'm out"* — and the morning after, on *"what happened
-last night"* or *"the brief"*.
+### ChatGPT desktop and Codex
+
+Use the skill installer with this repository URL, or place the complete skill folder in a supported
+local skills directory. For Codex user-level discovery:
+
+```bash
+git clone https://github.com/IdanTayree/Night-Watch.git ~/.agents/skills/night-watch
+```
+
+If that directory already exists, review/update it instead of overwriting it. In ChatGPT's skill
+picker mention `@night-watch`; in Codex use `$night-watch`. Actual availability depends on the host and workspace.
+
+### ChatGPT in a conversation or Project
+
+Upload `SKILL.md` and the files under `references/`, then say:
+
+> Use Night Watch from the uploaded instructions. First check which tools and project files you can
+> actually access. Follow the applicable workflow and clearly label anything you cannot verify.
+
+For verified execution, provide an authorized repository checkout with Git, Python and the project test tools. Uploads alone do not grant access to your Mac or start a background worker.
+[Host capabilities and fallbacks](references/platforms.md) explain the supported modes.
+These are portable skills, not published ChatGPT marketplace plugins. Web/mobile native distribution
+can use OpenAI's plugin packaging process; that is separate from uploading instructions to a Project.
+
+Official guidance checked 2026-09-23: [skills and local discovery](https://learn.chatgpt.com/docs/build-skills),
+[Projects and uploaded instructions](https://help.openai.com/en/articles/10169521-projects-in-chatgpt).
 
 ## Using the scripts on their own
 
@@ -221,7 +228,7 @@ night-watch/
 │   └── brief.md              a real armed brief, with its log
 └── scripts/
     ├── profile.py            reads the repo — gates, boards, conventions, live ports
-    ├── precheck.py           four checks per phase, plus the never-decide paths
+    ├── precheck.py           structured task, gate and path contracts
     └── verify_shift.py       ancestry, not existence
 ```
 
@@ -245,3 +252,18 @@ MIT — see [LICENSE](LICENSE).
 *Night gathers, and now my watch begins.*
 
 </div>
+
+## Verification contract and tests
+
+The helpers now require the [versioned brief contract](references/contracts.md). This intentionally
+rejects old prose-only briefs instead of reporting success without evidence. The historical example
+is a record, not a runnable current contract; use [the current template](examples/brief-template.md).
+Precheck validates declared task/path contracts. Verification also checks actual implementation diffs
+and recorded gate evidence. Neither helper is a runtime sandbox or a proof of test authenticity.
+Exit codes: precheck 0/1; verifier 0 complete, 1 invalid, 2 explicitly incomplete.
+
+Run isolated regression tests (Python 3.10+ and Git):
+
+```bash
+python3 -m unittest discover -s tests -v
+```

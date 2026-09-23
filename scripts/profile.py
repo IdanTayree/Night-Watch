@@ -41,12 +41,12 @@ GATE_PROBES = [
 JS_GATE_SCRIPTS = ("test", "typecheck", "type-check", "tsc", "lint", "check", "build", "e2e")
 
 
-def run(cmd: list[str], cwd: Path) -> str:
+def run(cmd: list[str], cwd: Path) -> str | None:
     try:
         out = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=20)
-        return out.stdout.strip()
+        return out.stdout.strip() if out.returncode == 0 else None
     except Exception:
-        return ""
+        return None
 
 
 def package_manager(root: Path) -> str | None:
@@ -123,7 +123,7 @@ def nested_gates(root: Path, depth: int = 2) -> list[dict]:
 def commit_convention(root: Path) -> dict:
     """What recent commits look like, so the shift writes messages that match rather than inventing
     a style. Read from history, which is the only honest source for a convention."""
-    log = run(["git", "log", "-40", "--format=%s"], root)
+    log = run(["git", "log", "-40", "--format=%s"], root) or ""
     subjects = [s for s in log.splitlines() if s.strip()]
     if not subjects:
         return {"sample": [], "pattern": None}
@@ -149,7 +149,7 @@ def boards(root: Path) -> list[str]:
 
 def listening_ports(root: Path) -> list[str]:
     """What is already running. Not to manage it — to keep the shift's hands off it."""
-    out = run(["lsof", "-nP", "-iTCP", "-sTCP:LISTEN"], root)
+    out = run(["lsof", "-nP", "-iTCP", "-sTCP:LISTEN"], root) or ""
     seen = []
     for line in out.splitlines()[1:]:
         parts = line.split()
@@ -162,12 +162,13 @@ def listening_ports(root: Path) -> list[str]:
 
 def build(root: Path) -> dict:
     gates = native_gates(root) + js_gates(root) + nested_gates(root)
+    status = run(["git", "status", "--porcelain"], root)
     return {
         "root": str(root),
         "is_git": (root / ".git").exists(),
         "branch": run(["git", "rev-parse", "--abbrev-ref", "HEAD"], root) or None,
         "head": run(["git", "rev-parse", "--short", "HEAD"], root) or None,
-        "dirty": bool(run(["git", "status", "--porcelain"], root)),
+        "dirty": None if status is None else bool(status),
         "package_manager": package_manager(root),
         "gates": gates,
         "gate_count": len(gates),
@@ -192,11 +193,11 @@ def main() -> int:
 
     if args.json:
         print(json.dumps(profile, indent=2))
-        return 0
+        return 0 if profile["gates"] and profile["head"] and profile["dirty"] is not None else 1
 
     print(f"project   {root}")
     print(f"git       {profile['branch'] or '—'} @ {profile['head'] or '—'}"
-          f"{'  (dirty)' if profile['dirty'] else ''}")
+          f"{'  (status unknown)' if profile['dirty'] is None else ('  (dirty)' if profile['dirty'] else '')}")
     print(f"packages  {profile['package_manager'] or '—'}")
     print()
     if profile["gates"]:
@@ -225,7 +226,7 @@ def main() -> int:
     print(f"written   {out_dir / 'profile.json'}")
     print()
     print("Now correct whatever this got wrong — that is the cheapest question of the whole cycle.")
-    return 0 if profile["gates"] else 1
+    return 0 if profile["gates"] and profile["head"] and profile["dirty"] is not None else 1
 
 
 if __name__ == "__main__":

@@ -1,157 +1,145 @@
 #!/usr/bin/env python3
-"""Check the shift's own claims against git, before anyone reads the brief.
+"""Verify structured shift evidence. Exit 0 complete, 1 invalid, 2 explicitly incomplete.
 
-**A log that says work happened is not work that happened.** On one real shift, ten commit shas were
-written into body prose rather than into headings; the verifier found ten claims of completion and
-could confirm none of them, and the morning brief would have reported ten landed items with zero
-evidence behind any of them.
-
-So the sha goes in the heading, and this reads it from there and asks git — with
-`git merge-base --is-ancestor`, not `git cat-file`. A sha can exist and still not be in your
-history: an amended commit, a lost rebase, a branch nobody pushed. Existence is not the question.
-
-    python3 scripts/verify_shift.py brief.md [--repo .] [--json]
-
-Exit 0 when every claim verified, 1 when any did not.
+Checks ancestry, task mapping, changed paths and recorded gate evidence, not test truth.
+Does not run the brief's commands. See references/contracts.md.
 """
-
 from __future__ import annotations
-
 import argparse
 import json
 import re
 import subprocess
-import sys
 from pathlib import Path
-
-#: `### Phase 3 — what it was · `a1b2c3d`` — the sha in the HEADING, which is the whole point.
-HEADING_SHA = re.compile(r"^#{2,4}\s+(.+?)\s*[·|]\s*`([0-9a-f]{7,40})`\s*$", re.M)
-#: A sha loose in prose. Found so it can be reported as NOT a claim — the log's own format is the
-#: contract, and quietly accepting prose would make the format optional, which is how it rotted.
-PROSE_SHA = re.compile(r"(?<![`/\w])\b([0-9a-f]{7,40})\b(?![`\w])")
-STOPPED = re.compile(r"^#{2,4}\s*STOPPED AFTER PHASE\s+(\S+)\s*[—:-]\s*(.+)$", re.M | re.I)
-BLOCKED = re.compile(r"^\s*(?:\*\*)?BLOCKED(?:\*\*)?\b", re.M | re.I)
-PHASE_HEADING = re.compile(r"^#{2,4}\s*Phase\s+(\S+?)\s*[—:-]", re.M | re.I)
+from contracts import load_queue, sections, block, contains, overlaps, prose
 
 
-def git(args: list[str], repo: Path) -> tuple[int, str]:
+def git(args, repo):
+    p = subprocess.run(['git', *args], cwd=repo, capture_output=True, text=True, timeout=20)
+    if p.returncode:
+        raise ValueError('git ' + ' '.join(args) + ': ' + p.stderr.strip())
+    return p.stdout.rstrip('\n')
+
+
+def ancestor(commit, ref, repo):
+    return subprocess.run(['git', 'merge-base', '--is-ancestor', commit, ref], cwd=repo,
+                          capture_output=True, timeout=20).returncode == 0
+
+
+def verify(brief, repo, require_ref=None):
+    errors, claims = [], []
+    result = {'status': 'invalid', 'errors': errors, 'claims': claims, 'queued_phases': 0}
     try:
-        out = subprocess.run(["git", *args], cwd=repo, capture_output=True, text=True, timeout=20)
-        return out.returncode, (out.stdout or out.stderr).strip()
-    except Exception as e:
-        return 127, repr(e)
+        policy, phases, log = load_queue(brief.read_text(), repo)
+        result['queued_phases'] = len(phases)
+        if not ancestor(policy['base_commit'], 'HEAD', repo):
+            raise ValueError('base_commit is not in HEAD history')
+        if git(['status', '--porcelain', '--untracked-files=all'], repo):
+            errors.append('working tree is dirty; commit the receipt or report unfinished work')
+        stopped = list(re.finditer(r'^#{2,4}\s+STOPPED AFTER PHASE (\S+)\s+[—:-]\s+(.+)$', prose(log), re.M))
+        logs = sections(log)
+        if len(stopped) > 1:
+            errors.append('multiple STOPPED markers')
+        if len(logs) > len(phases):
+            errors.append('extra or duplicate phase receipts')
+        seen, previous = set(), policy['base_commit']
+        incomplete = False
+        for i, (pid, title, body) in enumerate(logs):
+            if i >= len(phases):
+                break
+            phase = phases[i]
+            if pid != phase['id']:
+                errors.append(f'phase {pid} is duplicate, unknown or out of queue order')
+            receipt = block(body, 'night-watch-receipt')
+            status = receipt.get('status')
+            if receipt.get('task') != phase['task']:
+                errors.append(f'phase {pid} task does not match queue')
+            if status == 'blocked':
+                incomplete = True
+                if not isinstance(receipt.get('reason'), str) or not receipt['reason'].strip():
+                    errors.append(f'phase {pid} blocked without reason')
+                if i != len(logs)-1:
+                    errors.append('blocked phase must stop this sequential queue')
+                continue
+            if status not in ('completed', 'refused'):
+                errors.append(f'phase {pid} has invalid status')
+                continue
+            if status == 'refused' and (not isinstance(receipt.get('reason'), str) or not receipt['reason'].strip() or
+                                       not isinstance(receipt.get('would_change'), str) or not receipt['would_change'].strip()):
+                errors.append(f'phase {pid} refusal needs reason and would_change')
+            sha_match = re.search(r'\s[·|]\s*`([0-9a-f]{7,40})`\s*$', title)
+            if not sha_match:
+                errors.append(f'phase {pid} heading has no commit SHA')
+                continue
+            sha = git(['rev-parse', '--verify', sha_match[1] + '^{commit}'], repo)
+            if sha in seen or sha == previous or not ancestor(previous, sha, repo) or not ancestor(sha, 'HEAD', repo):
+                errors.append(f'phase {pid} commit is repeated, out of order or outside HEAD history')
+            seen.add(sha)
+            previous = sha
+            if require_ref and not ancestor(sha, require_ref, repo):
+                errors.append(f'phase {pid} commit not in required ref {require_ref}')
+            subject = git(['log', '-1', '--format=%s', sha], repo)
+            if not re.match(re.escape(phase['task']) + r'(?=[:\s])', subject):
+                errors.append(f'phase {pid} commit subject does not name its task')
+            parents = git(['rev-list', '--parents', '-n', '1', sha], repo).split()[1:]
+            if len(parents) != 1:
+                errors.append(f'phase {pid} must reference a single-parent implementation commit')
+                continue
+            # --no-renames exposes BOTH source and destination so moves cannot evade boundaries.
+            changed = git(['diff', '--name-only', '-z', '--no-renames', parents[0], sha], repo).split('\0')
+            changed = [p for p in changed if p]
+            if not changed:
+                errors.append(f'phase {pid} implementation commit has no changes')
+            for path in changed:
+                if (not any(contains(p, path) for p in phase['paths']) or
+                        any(overlaps(p, path) for p in policy['protected_paths'])):
+                    errors.append(f'phase {pid} changed undeclared/protected path: {path}')
+            gate = receipt.get('gate', {})
+            if not isinstance(gate, dict):
+                errors.append(f'phase {pid} gate is not an object')
+                gate = {}
+            if (gate.get('command') != phase['gate'] or gate.get('cwd') != phase['cwd'] or
+                    type(gate.get('exit_code')) is not int or gate.get('exit_code') != 0 or
+                    gate.get('commit') != sha or not isinstance(gate.get('output'), str) or not gate['output'].strip()):
+                errors.append(f'phase {pid} lacks matching command/cwd/commit, exit 0 and recorded output')
+            claims.append({'phase': pid, 'task': phase['task'], 'sha': sha, 'status': status, 'paths': changed})
+        # Any apparent completion heading must be parsed; arbitrary prose is not a receipt.
+        headings = re.findall(r'^#{2,4}\s+(.+)$', prose(log), re.M)
+        if any(not h.startswith('Phase ') and not h.startswith('STOPPED AFTER PHASE ') for h in headings):
+            errors.append('unrecognized log heading; use Phase or STOPPED headings')
+        if len(logs) < len(phases):
+            incomplete = True
+        if incomplete and not stopped:
+            errors.append('unfinished queue has no explicit STOPPED marker')
+        if stopped:
+            expected = logs[-1][0] if logs else '0'
+            if stopped[0][1] != expected:
+                errors.append('STOPPED marker does not identify the last attempted phase (or 0)')
+            incomplete = True
+        result['status'] = 'invalid' if errors else ('incomplete' if incomplete else 'complete')
+    except (ValueError, OSError, subprocess.SubprocessError) as exc:
+        errors.append(str(exc))
+    result['verified'] = len(claims) if not errors else 0
+    result['exit_code'] = {'complete': 0, 'invalid': 1, 'incomplete': 2}[result['status']]
+    return result
 
 
-def verify(brief: Path, repo: Path) -> dict:
-    text = brief.read_text(encoding="utf-8", errors="replace")
-    log_at = re.search(r"^#{1,3}\s*Log\b", text, re.M | re.I)
-    log = text[log_at.end():] if log_at else ""
-    queue = text[: log_at.start()] if log_at else text
-
-    claims = []
-    for m in HEADING_SHA.finditer(log):
-        title, sha = m.group(1).strip(), m.group(2)
-        code, _ = git(["merge-base", "--is-ancestor", sha, "HEAD"], repo)
-        exists, _ = git(["cat-file", "-e", f"{sha}^{{commit}}"], repo)
-        claims.append({
-            "title": title,
-            "sha": sha,
-            "in_history": code == 0,
-            "exists": exists == 0,
-            "subject": git(["log", "-1", "--format=%s", sha], repo)[1] if exists == 0 else None,
-        })
-
-    headings_without_sha = [
-        m.group(0).strip() for m in re.finditer(r"^#{2,4}\s+(?!STOPPED)(.+)$", log, re.M)
-        if not HEADING_SHA.match(m.group(0))
-    ]
-
-    stopped = STOPPED.search(log)
-    return {
-        "brief": str(brief),
-        "queued_phases": len(PHASE_HEADING.findall(queue)),
-        "claims": claims,
-        "verified": sum(1 for c in claims if c["in_history"]),
-        "failed": [c for c in claims if not c["in_history"]],
-        "headings_without_sha": headings_without_sha,
-        "prose_shas": len([s for s in PROSE_SHA.findall(log)
-                           if s not in {c["sha"] for c in claims}]),
-        "stopped_after": stopped.group(1) if stopped else None,
-        "stopped_because": stopped.group(2).strip() if stopped else None,
-        "blocked": len(BLOCKED.findall(log)),
-        "head": git(["rev-parse", "--short", "HEAD"], repo)[1],
-        "dirty": bool(git(["status", "--porcelain"], repo)[1]),
-    }
-
-
-def main() -> int:
+def main():
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("brief")
-    ap.add_argument("--repo", default=".")
-    ap.add_argument("--json", action="store_true")
+    ap.add_argument('brief', type=Path)
+    ap.add_argument('--repo', type=Path, default=Path('.'))
+    ap.add_argument('--require-ref', help='also require ancestry in this already-fetched remote ref')
+    ap.add_argument('--json', action='store_true')
     args = ap.parse_args()
-
-    brief, repo = Path(args.brief), Path(args.repo).resolve()
-    if not brief.exists():
-        print(f"UNMEASURED: no brief at {brief} — report this as unmeasured, not as zero.",
-              file=sys.stderr)
-        return 1
-    if not (repo / ".git").exists():
-        print(f"UNMEASURED: {repo} is not a git repo; no claim here can be checked.",
-              file=sys.stderr)
-        return 1
-
-    r = verify(brief, repo)
+    result = verify(args.brief, args.repo.resolve(), args.require_ref)
     if args.json:
-        print(json.dumps(r, indent=2))
-        return 0 if not r["failed"] else 1
-
-    print(f"brief    {r['brief']}")
-    print(f"HEAD     {r['head']}{'  (dirty)' if r['dirty'] else ''}")
-    print(f"queued   {r['queued_phases']} phases")
-    print(f"claimed  {len(r['claims'])} · verified {r['verified']}")
-    print()
-
-    if r["failed"]:
-        print("THIS GOES AT THE TOP OF THE BRIEF:")
-        for c in r["failed"]:
-            why = ("the sha does not exist in this repo" if not c["exists"]
-                   else "the commit exists but is NOT an ancestor of HEAD — amended, rebased away, "
-                        "or on a branch nobody merged")
-            print(f"  FAILED  {c['sha']}  {c['title'][:60]}")
-            print(f"          {why}")
-        print()
-
-    for c in r["claims"]:
-        if c["in_history"]:
-            print(f"  ok      {c['sha']}  {c['title'][:60]}")
-
-    if r["headings_without_sha"]:
-        print()
-        print("  no sha in these log headings — they claim a phase and prove nothing:")
-        for h in r["headings_without_sha"][:8]:
-            print(f"          {h[:76]}")
-
-    if r["prose_shas"]:
-        print()
-        print(f"  {r['prose_shas']} sha-like string(s) in prose, NOT counted. The heading is the")
-        print("  contract; a sha in a sentence is a sha nothing verifies.")
-
-    if r["stopped_after"]:
-        print()
-        print(f"  STOPPED after phase {r['stopped_after']} — {r['stopped_because']}")
-        print("  The night was interrupted. Say so in the brief's first two lines.")
-    elif r["claims"] and r["queued_phases"] and len(r["claims"]) < r["queued_phases"]:
-        print()
-        print(f"  UNMEASURED: {len(r['claims'])} of {r['queued_phases']} phases logged, and no")
-        print("  STOPPED marker. Cannot tell finished from interrupted — do not guess which.")
-
-    if r["blocked"]:
-        print(f"\n  {r['blocked']} BLOCKED entr(ies) — each needs its reason in the brief.")
-
-    print()
-    return 1 if r["failed"] else 0
+        print(json.dumps(result, indent=2))
+    else:
+        print(f"{result['status'].upper()}: {result['verified']}/{result['queued_phases']} phase receipts verified")
+        for error in result['errors']:
+            print('FAIL ' + error)
+        print('Recorded gate results require independent review; no gate was rerun by this verifier.')
+    return result['exit_code']
 
 
-if __name__ == "__main__":
-    sys.exit(main())
+if __name__ == '__main__':
+    raise SystemExit(main())

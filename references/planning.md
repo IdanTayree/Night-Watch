@@ -14,8 +14,8 @@ nobody can check. This document is how to close all three before anyone goes to 
 python3 scripts/profile.py            # writes .night-watch/profile.json
 ```
 
-It reads the repo for the things a shift needs to know: which gates exist and the exact command to
-run each, the package manager and where it lives, where tests live, whether there is a board or an
+It reads the repo for the things a shift needs to know: which gates appear to exist and candidate commands to
+run them, the package manager and where it lives, where tests live, whether there is a board or an
 issue tracker, the commit message convention in recent history, and which processes and ports look
 like they belong to a running dev environment.
 
@@ -118,24 +118,14 @@ Then add the project's own. A project that has been burned once knows what belon
 
 ---
 
-## 5 · Run the precondition check, and read it
+## 5 · Check the structured contract
 
-```bash
-python3 scripts/precheck.py path/to/brief.md
-```
+Use [contracts.md](contracts.md) to record the base commit, protected paths, per-phase task/gate/done
+conditions and write scopes. Run precheck with the explicit project and board paths. It validates
+those declarations; it never executes gate commands or interprets all natural-language restrictions.
+A nonexistent/empty board is a failure. A passing precheck still needs a real green gate and an
+independent permissions/scope review before arming. Use the host sandbox for runtime restrictions.
 
-It refuses a brief where a phase: names a task that does not exist or is already closed, has no
-gate command, has no definition of done, depends on something the brief itself marks unanswered, or
-touches a path the never-decide list protects. It also warns when the queue is longer than the
-project's measured throughput.
-
-**A failing check is a finding, not a formality.** The failure mode it exists to prevent — a shift
-working for hours on a task that was closed last week — has happened in real projects more than
-once, and every time it read as productive while it was happening.
-
-**The day ends when the check passes.** Arm nothing before that.
-
----
 
 ## Coming from a Blindspot blueprint
 

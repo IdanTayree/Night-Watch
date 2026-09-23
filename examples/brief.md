@@ -1,9 +1,8 @@
 # Night shift — 2026-09-15
 
-> **Note for anyone running `precheck.py` against this file:** it will refuse it, and it is right
-> to. This is a **finished** shift — its tasks are closed now, and a closed task in a queue is
-> exactly what the check exists to catch. That refusal is the tool working, not a bug in the
-> example.
+> **Historical record, not a runnable current template.** This finished shift predates the
+> versioned JSON contract. Current precheck refuses it for missing structured fields; its old tasks
+> are also closed. Preserve the record and use [brief-template.md](brief-template.md) for new work.
 
 **Armed at 04:02 after the precondition check passed.** Four phases. This is a real brief from the
 project Night Watch was extracted from, trimmed to what a reader needs.

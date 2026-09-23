@@ -73,36 +73,19 @@ mechanism rather than at a word that happens to be nearby.
 
 ## Logging, and why the sha goes in the heading
 
-Each phase gets an entry in the brief's **Log** section:
-
-```markdown
-### Phase 3 — <what it was> · `a1b2c3d`
-
-<what shipped, in a few lines>
-
-**Gate:** `<command>` → <the real output>
-
-**Mutation:** <what was broken> → <red / SURVIVED, and what that meant>
-
-**Not done:** <anything left, and why>
-```
-
-**The sha belongs in the heading, not the prose.** `verify_shift.py` reads it from there and checks
-it with `git merge-base --is-ancestor`, which is the only way to know a logged commit is really in
-history. On one real shift, ten shas were written into body text; the verifier found ten claims and
-could confirm none of them, and the morning brief would have reported ten completed items with zero
-evidence.
-
-**A bare `### Phase N` heading declares that phase complete.** If a phase only partly landed, log it
-under a name that says so — `### Phase 3a` — or the next run will skip work that was never finished.
+Each phase gets an explicit status and structured receipt in the brief's **Log** section. Use the
+[contract format](contracts.md), including the full implementation SHA in gate evidence and the SHA
+in the phase heading. The verifier checks one-to-one ordered mapping, actual changed paths and
+ancestry. A heading alone never declares completion. Keep implementation and receipt commits separate
+when project policy requires it; commit the final brief before verifying a clean checkout.
 
 ---
 
 ## Stopping
 
 **Three strikes.** Three consecutive failed attempts at the same problem, and the phase is `BLOCKED`.
-Write what was tried, what each attempt did, and what would unblock it. Then go to the next phase —
-a blocked phase does not end the shift.
+Write what was tried, what each attempt did, and what would unblock it. Stop the sequential queue and add a STOPPED marker.
+A separately approved independent queue can proceed; do not guess which later phases are independent.
 
 **Refusal is completion.** A phase that should not be done is finished when the refusal is written:
 what was measured, why it says no, and in one clause what would change the answer. A refusal with a
@@ -125,7 +108,7 @@ The brief carries it. When a phase turns out to require one of those decisions:
 1. **Stop that phase.** Do not pick the reasonable option.
 2. **Write the question** into the brief's *what needs them* section, with the options and what each
    costs.
-3. **Go to the next phase.**
+3. **Stop the sequential queue and record the interruption.**
 
 A question asked in the morning costs minutes. A decision made at 3am and discovered a week later
 costs the work built on top of it.
