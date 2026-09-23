@@ -240,7 +240,16 @@ this skill does. It works overnight and it reports in the morning.
 
 `assets/` carries three cuts of it: the poster (`night-watch.webp`, the README hero), a square
 `avatar.png` with the caption cropped away for anywhere it renders small, and a 1280×640
-`social-preview.png` for GitHub's social preview setting — which is web-only, under
+`social-preview.png`.
+
+The card is the **whole poster**, letterboxed rather than recomposed — the ground is pure `#000`
+and so is the canvas, so the bars have no edge to see and the original composition survives intact.
+An earlier version cut the poster into pieces and reassembled them, which kept the wordmark and
+lost the raven. The margins are trimmed by measurement (any pixel over a low threshold counts as
+ink) rather than by eye, so the art fills as much of the slot as it can.
+
+GitHub's social preview has **no API** — `open_graph_image_url` is not a writable field, and a
+`PATCH` carrying it is silently ignored. It is set by hand under
 *Settings → General → Social preview*.
 
 ## Licence
